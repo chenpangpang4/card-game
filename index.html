@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>三局夺牌【内部测试】</title>
+    <!-- 联机通信库（自动加载，无需下载） -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:system-ui, sans-serif;}
+        body{background:#1a242f;color:#ffffff;padding:14px;min-height:100vh;max-width:620px;margin:0 auto;}
+        .panel{background:#2c3b4a;border-radius:12px;padding:16px;margin-bottom:12px;}
+        h3{margin-bottom:10px;color:#86c7ff;}
+        input{width:100%;padding:11px;border-radius:8px;border:none;font-size:16px;margin:8px 0;}
+        button{background:#2488ff;border:none;color:#fff;padding:11px 14px;border-radius:8px;margin:4px;cursor:pointer;font-size:15px;}
+        button:disabled{background:#555555;cursor:not-allowed;}
+        .card{display:inline-block;background:#fff;color:#000;padding:9px 10px;border-radius:6px;margin:4px;font-weight:bold;min-width:46px;text-align:center;}
+        .tip-text{margin:8px 0;color:#ffdd66;min-height:22px;}
+        .info-line{margin:6px 0;font-size:16px;}
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>🏆 三局夺牌</h2>
+    <div class="panel">
+        <h3>房间大厅</h3>
+        <input id="roomNumber" placeholder="输入房间号">
+        <br>
+        <button onclick="createRoom()">创建房间（房主）</button>
+        <button onclick="joinRoom()">加入房间</button>
+        <div class="tip-text" id="roomTip"></div>
+    </div>
+
+    <div class="panel">
+        <div class="info-line">当前积分：<span id="scoreText">0</span> 分</div>
+        <div class="info-line">游戏阶段：<span id="stageText">等待连接</span></div>
+        <div style="margin-top:10px">我的手牌：</div>
+        <div id="myCardBox"></div>
+    </div>
+
+    <div class="panel">
+        <button onclick="round1Action()" id="btnR1" disabled>第一回合｜打出1张牌</button>
+        <button onclick="round2Action()" id="btnR2" disabled>第二回合｜打出2张牌</button>
+        <button onclick="round3Action()" id="btnR3" disabled>第三回合｜3张拖拉机比拼</button>
+    </div>
+</div>
+
+<script>
+// =====================游戏规则工具函数【完全匹配你的纸牌规则】=====================
+// 生成两副扑克牌 A=1
+function initCards() {
+    const suits = ['s','h','c','d'];
+    let cards = [];
+    //两副牌循环
+    for(let copy=0; copy<2; copy++){
+        for(let v=1; v<=13; v++){
+            suits.forEach(s=>{
+                cards.push({suit:s,val:v,isKing:false})
+            })
+        }
+        //小王 14，大王15
+        cards.push({suit:'',val:14,isKing:true,name:"小王"})
+        cards.push({suit:'',val:15,isKing:true,name:"大王"})
+    }
+    //洗牌算法
+    for(let i=cards.length-1;i>0;i--){
+        const j=Math.floor(Math.random()*(i+1));
+        [cards[i],cards[j]]=[cards[j],cards[i]]
+    }
+    return cards;
+}
+
+//第一回合单牌大小规则：A(1)最小，大王最大
+function getR1Weight(card){
+    if(card.val===14) return 14;
+    if(card.val===15) return 15;
+    return card.val;
+}
+
+//第三回合牌型大小：A(1)最大，2最小
+function getR3Weight(card){
+    if(card.isKing) return 99;
+    let v=card.val;
+    return v === 1 ? 13 : v-1;
+}
+
+//第二回合10点半计算：2~10为整数；A/J/Q/K/王 = 0.5半点
+function calc10Half(cardList){
+    let sum=0;
+    cardList.forEach(c=>{
+        if(c.val>=2 && c.val<=10 && !c.isKing){
+            sum += c.val;
+        }else{
+            sum += 0.5;
+        }
+    })
+    return sum;
+}
+
+//卡牌文字格式化
+function formatCardName(card){
+    if(card.isKing) return card.name;
+    return card.val === 1 ? "A" : card.val;
+}
+
+// =====================联机通信全局变量=====================
+let peer;
+let connection;
+let roomId = "";
+let myHandCards = [];
+let totalScore = 0;
+
+//页面渲染函数
+function showTip(text){
+    document.getElementById("roomTip").innerText = text;
+}
+function refreshHandCardUI(){
+    let html = "";
+    myHandCards.forEach(card=>{
+        html += `<span class="card">${formatCardName(card)}</span>`
+    })
+    document.getElementById("myCardBox").innerHTML = html;
+    document.getElementById("scoreText").innerText = totalScore;
+}
+
+//【房主操作：创建房间】
+function createRoom(){
+    roomId = document.getElementById("roomNumber").value || String(Math.floor(Math.random()*900000));
+    showTip(`正在创建房间【${roomId}】等待好友接入`);
+    //初始化点对点服务
+    peer = new Peer(roomId);
+    peer.on('open', ()=>{
+        showTip(`✅房间创建成功！把房间号【${roomId}】发给朋友`);
+    })
+    //有人加入房间触发
+    peer.on('connection', (conn)=>{
+        connection = conn;
+        bindMessageEvent();
+        //房主洗牌，每人发6张
+        const allCardPool = initCards();
+        myHandCards = allCardPool.splice(0,6);
+        refreshHandCardUI();
+        //发6张牌给好友
+        connection.send({type:"deal", cards: allCardPool.splice(0,6)});
+        document.getElementById("stageText").innerText = "第一回合";
+        document.getElementById("btnR1").disabled = false;
+    })
+}
+
+//【好友操作：加入房间】
+function joinRoom(){
+    roomId = document.getElementById("roomNumber").value.trim();
+    if(!roomId) return showTip("⚠️请填写房间号");
+    showTip("正在连接房主...");
+    peer = new Peer();
+    peer.on('open',()=>{
+        connection = peer.connect(roomId);
+        bindMessageEvent();
+    })
+}
+
+//绑定双方消息互通
+function bindMessageEvent(){
+    connection.on('open', ()=> showTip("✅连接成功，可以开始对局！"))
+    connection.on('data', (msg)=>{
+        //收到发牌指令
+        if(msg.type === "deal"){
+            myHandCards = msg.cards;
+            refreshHandCardUI();
+            document.getElementById("stageText").innerText = "第一回合";
+            document.getElementById("btnR1").disabled = false;
+        }
+        //第一回合结束
+        if(msg.type === "round1Finish"){
+            alert("第一回合结算完成");
+            document.getElementById("stageText").innerText = "第二回合";
+            document.getElementById("btnR2").disabled = false;
+        }
+        //第二回合结束
+        if(msg.type === "round2Finish"){
+            alert("第二回合结算完成");
+            document.getElementById("stageText").innerText = "第三回合";
+            document.getElementById("btnR3").disabled = false;
+        }
+    })
+    connection.on('close', ()=> showTip("❌连接断开，请重新进入房间"))
+}
+
+//回合按钮
+function round1Action(){
+    connection.send({type:"round1Finish"});
+    document.getElementById("stageText").innerText = "第二回合";
+    document.getElementById("btnR2").disabled = false;
+}
+function round2Action(){
+    connection.send({type:"round2Finish"});
+    document.getElementById("stageText").innerText = "第三回合";
+    document.getElementById("btnR3").disabled = false;
+}
+function round3Action(){
+    alert("第三回合比拼结束，本轮游戏完成！");
+}
+</script>
+</body>
+</html>
