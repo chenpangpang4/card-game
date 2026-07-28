@@ -2,74 +2,81 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
     <title>三局夺牌</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         *{margin:0;padding:0;box-sizing:border-box;font-family:system-ui, sans-serif;}
-        body{background:#1a242f;color:#fff;padding:14px;max-width:640px;margin:0 auto;}
-        .box{background:#2c3b4a;border-radius:12px;padding:16px;margin-bottom:12px;}
-        h2{margin-bottom:12px;color:#94ccff;}
-        .room-input{width:100%;padding:12px;border-radius:8px;border:none;font-size:18px;margin:8px 0;}
-        button{
-            background:#2478ff;
-            color:#fff;
-            border:none;
-            padding:12px 16px;
-            border-radius:8px;
-            font-size:16px;
-            margin:4px;
-            cursor:pointer;
+        body{
+            background:#1a242f;color:#fff;padding:12px;max-width:700px;margin:0 auto;min-height:100vh;
         }
-        button:disabled{background:#556;cursor:not-allowed;}
-        /* 纸牌样式 */
+        .panel{
+            background:#2c3b4a;border-radius:14px;padding:16px;margin-bottom:14px;
+        }
+        h1{
+            text-align:center;color:#ffd044;margin:10px 0 16px;
+            font-size:26px;
+        }
+        .room-input{
+            width:100%;padding:13px;border-radius:10px;border:none;font-size:18px;margin:10px 0;
+        }
+        .btn{
+            background:#2478ff;color:#fff;border:none;padding:13px 18px;border-radius:10px;font-size:16px;margin:5px;cursor:pointer;
+        }
+        .btn:disabled{background:#444c60;cursor:not-allowed;opacity:0.7;}
+        .tip-green{color:#7fdf7f;margin:10px 0;font-size:16px;}
+        .info-text{margin:8px 0;font-size:17px;}
+
+        /* ==========斗地主风格手牌核心样式========== */
+        .hand-container{
+            margin:16px 0;min-height:110px;
+        }
         .card{
             display:inline-block;
-            background:#fff;
+            background:#ffffff;
             color:#000;
-            padding:12px 8px;
+            width:68px;height:96px;
             border-radius:8px;
-            margin:6px 4px;
-            font-weight:bold;
-            min-width:56px;
-            text-align:center;
-            box-shadow:0 2px 6px #0005;
+            margin:0 -12px; /*卡牌重叠效果，棋牌APP标准样式 */
+            padding:6px 4px;
+            font-weight:bold;font-size:20px;text-align:center;
+            box-shadow:0 2px 6px #0004;
             cursor:pointer;
-            transition: transform 0.15s;
+            transition: transform 0.18s ease;
+            position:relative;
+            z-index:1;
         }
-        .card.red{color:#d00000;}
-        /* 选中上浮效果 */
+        .card.red{color:#d60000;}
+        /* 选中向上抬起，斗地主同款效果 */
         .card.selected{
-            transform: translateY(-8px);
-            box-shadow:0 6px 8px #0008;
-            outline:2px solid #36f;
+            transform: translateY(-22px);
+            z-index:10;
+            box-shadow:0 8px 12px #0006;
         }
-        .tip-green{color:#7fdf7f;margin:8px 0;}
-        .info-text{margin:8px 0;font-size:17px;}
     </style>
 </head>
 <body>
     <h1>🏆 三局夺牌</h1>
-    <div class="box">
+    <div class="panel">
         <h2>房间大厅</h2>
         <input class="room-input" id="roomIdInput" placeholder="输入房间号">
         <br>
-        <button onclick="createRoom()">创建房间（房主）</button>
-        <button onclick="joinRoom()">加入房间</button>
+        <button class="btn" onclick="createRoom()">创建房间（房主）</button>
+        <button class="btn" onclick="joinRoom()">加入房间</button>
         <div class="tip-green" id="connTip"></div>
     </div>
 
-    <div class="box">
+    <div class="panel">
         <div class="info-text">当前积分：<span id="scoreText">0</span> 分</div>
         <div class="info-text">游戏阶段：<span id="stageText">等待开局</span></div>
         <div class="info-text">我的手牌：</div>
-        <div id="handBox"></div>
+        <div class="hand-container" id="handBox"></div>
     </div>
 
-    <div class="box">
-        <button id="btnR1" onclick="sendRound1()" disabled>第一回合｜打出1张牌</button>
-        <button id="btnR2" onclick="sendRound2()" disabled>第二回合｜打出2张牌</button>
-        <button id="btnR3" onclick="sendRound3()" disabled>第三回合｜3张拖拉机比拼</button>
+    <div class="panel">
+        <button class="btn" id="btnR1" onclick="sendRound1()" disabled>第一回合｜打出1张牌</button>
+        <button class="btn" id="btnR2" onclick="sendRound2()" disabled>第二回合｜打出2张牌</button>
+        <button class="btn" id="btnR3" onclick="sendRound3()" disabled>第三回合｜3张拖拉机比拼</button>
     </div>
 
 <script>
@@ -79,19 +86,15 @@ const redSuit = ['h','d'];
 let peer, conn;
 let roomId = "";
 let myCards = [];
-// 保存选中卡牌下标
 let selectedIndex = [];
-// 游戏阶段：wait / r1 / r2 / r3
-let gameStage = "wait";
+let gameStage = "wait"; // wait / r1 / r2 / r3
 
-// 生成两副牌
+// 生成扑克牌
 function initCards(){
     const suits = ['s','h','c','d'];
     let cards = [];
     for(let copy=0;copy<2;copy++){
-        for(let v=1;v<=13;v++){
-            suits.forEach(s=>cards.push({suit:s,val:v,isKing:false}));
-        }
+        for(let v=1;v<=13;v++) suits.forEach(s=>cards.push({suit:s,val:v,isKing:false}));
         cards.push({suit:'',val:14,isKing:true,name:"小王"});
         cards.push({suit:'',val:15,isKing:true,name:"大王"});
     }
@@ -103,7 +106,7 @@ function initCards(){
     return cards;
 }
 
-// 格式化牌文字
+// 牌面文字转换
 function formatCard(card){
     if(card.isKing) return card.name;
     let num;
@@ -114,96 +117,76 @@ function formatCard(card){
     else num=card.val;
     return num + suitMap[card.suit];
 }
-function isRed(card){
+function isRedCard(card){
     if(card.isKing)return false;
     return redSuit.includes(card.suit);
 }
 
-// 渲染手牌 + 点击选中事件
+// 渲染手牌【斗地主重叠布局】
 function renderHand(){
     const box = document.getElementById("handBox");
     box.innerHTML = "";
     myCards.forEach((card,idx)=>{
-        let cls = isRed(card) ? "card red" : "card";
+        let cls = isRedCard(card) ? "card red" : "card";
         if(selectedIndex.includes(idx)) cls += " selected";
         let span = document.createElement("span");
         span.className = cls;
         span.innerText = formatCard(card);
-        // 点击切换选中
         span.onclick = ()=>toggleSelect(idx);
         box.appendChild(span);
     });
 }
 
-// 选中/取消选中卡牌
+// 选牌逻辑：点击抬起/放下，限制数量
 function toggleSelect(index){
-    // 根据当前回合限制选择数量
-    let maxSel = 0;
-    if(gameStage === "r1") maxSel = 1;
-    if(gameStage === "r2") maxSel = 2;
-    if(gameStage === "r3") maxSel = 3;
-    if(maxSel === 0) return;
+    let maxSelect = 0;
+    if(gameStage === "r1") maxSelect = 1;
+    if(gameStage === "r2") maxSelect = 2;
+    if(gameStage === "r3") maxSelect = 3;
+    if(maxSelect === 0) return;
 
     let pos = selectedIndex.indexOf(index);
     if(pos > -1){
         // 取消选中
         selectedIndex.splice(pos,1);
     }else{
-        // 选中，超出数量则删掉最早选中的
-        if(selectedIndex.length >= maxSel){
-            selectedIndex.shift();
+        // 超出上限，不能多选
+        if(selectedIndex.length >= maxSelect){
+            setTip(`本回合最多选择${maxSelect}张牌！`);
+        }else{
+            selectedIndex.push(index);
         }
-        selectedIndex.push(index);
     }
     renderHand();
 }
 
-// ===================== 联机逻辑 =====================
+// ========联机房间逻辑========
 function createRoom(){
     roomId = document.getElementById("roomIdInput").value || String(Math.floor(Math.random()*900000+100000));
     document.getElementById("roomIdInput").value = roomId;
     peer = new Peer(roomId);
-    peer.on("open",()=>{
-        setTip("✅房间创建成功，等待玩家加入！房间号："+roomId);
-    });
-    peer.on("connection",c=>{
-        conn = c;
-        bindConn();
-        startGame();
-    });
+    peer.on("open",()=>setTip("✅房间创建成功，等待玩家加入！房间号："+roomId));
+    peer.on("connection",c=>{conn = c;bindConn();startGame();});
 }
-
 function joinRoom(){
     roomId = document.getElementById("roomIdInput").value.trim();
-    if(!roomId){
-        setTip("⚠️请输入房间号");
-        return;
-    }
+    if(!roomId){setTip("⚠️请输入房间号");return;}
     peer = new Peer();
-    peer.on("open",()=>{
-        conn = peer.connect(roomId);
-        bindConn();
-    });
+    peer.on("open",()=>{conn = peer.connect(roomId);bindConn();});
 }
-
 function bindConn(){
-    conn.on("open",()=>{
-        setTip("✅连接成功，可以开始对局！");
-    });
-    conn.on("data",(msg)=>{
-        console.log("收到消息",msg);
-    });
+    conn.on("open",()=>setTip("✅连接成功，可以开始对局！"));
+    conn.on("data",(msg)=>console.log("收到消息",msg));
     conn.on("close",()=>setTip("❌连接断开，请重新进入房间"));
 }
-
 function setTip(text){
     document.getElementById("connTip").innerText = text;
 }
 
-// 开局发牌
+// 开局发6张手牌
 function startGame(){
-    let all = initCards();
-    myCards = all.slice(0,6);
+    let allCards = initCards();
+    myCards = allCards.slice(0,6);
     selectedIndex = [];
     gameStage = "r1";
     document.getElementById("stageText").innerText = "第一回合";
@@ -213,15 +196,10 @@ function startGame(){
     renderHand();
 }
 
-// 出牌按钮
+// 出牌提交
 function sendRound1(){
-    if(selectedIndex.length !== 1){
-        setTip("⚠️第一回合必须选择1张牌！");
-        return;
-    }
-    // 这里后续可以加上发送对手逻辑，先完成选牌功能
+    if(selectedIndex.length !== 1){setTip("⚠️第一回合必须选中1张牌！");return;}
     setTip("第一回合出牌完成，进入第二回合");
-    // 移除打出的牌
     removeSelectedCards();
     gameStage = "r2";
     document.getElementById("stageText").innerText = "第二回合";
@@ -231,10 +209,7 @@ function sendRound1(){
     renderHand();
 }
 function sendRound2(){
-    if(selectedIndex.length !== 2){
-        setTip("⚠️第二回合必须选择2张牌！");
-        return;
-    }
+    if(selectedIndex.length !== 2){setTip("⚠️第二回合必须选中2张牌！");return;}
     setTip("第二回合出牌完成，进入第三回合");
     removeSelectedCards();
     gameStage = "r3";
@@ -245,19 +220,13 @@ function sendRound2(){
     renderHand();
 }
 function sendRound3(){
-    if(selectedIndex.length !== 3){
-        setTip("⚠️第三回合选择剩余3张牌！");
-        return;
-    }
-    setTip("三局全部结束，结算比分！");
+    if(selectedIndex.length !== 3){setTip("⚠️第三回合选中剩余3张牌！");return;}
+    setTip("三局比拼结束，结算比分！");
 }
-
-// 删除已经打出的手牌
+// 移除打出的手牌
 function removeSelectedCards(){
     selectedIndex.sort((a,b)=>b-a);
-    selectedIndex.forEach(i=>{
-        myCards.splice(i,1);
-    });
+    selectedIndex.forEach(i=>myCards.splice(i,1));
 }
 </script>
 </body>
